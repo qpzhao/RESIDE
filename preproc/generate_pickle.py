@@ -5,7 +5,7 @@ from helper import *
 from scipy.spatial.distance import cdist
 from joblib import Parallel, delayed
 from orderedset import OrderedSet
-
+import gensim as gm
 parser = argparse.ArgumentParser(description='Main Preprocessing program')
 parser.add_argument('-test', 	 dest="FULL", 		action='store_false')
 parser.add_argument('-pos', 	 dest="MAX_POS", 	default=60,   	 	type=int, help='Max position to consider for positional embeddings')
@@ -34,7 +34,7 @@ rel2id        = json.loads(open('./preproc/{}_relation2id.json'.format(args.data
 id2rel 	      = dict([(v, k) for k, v in rel2id.items()])
 alias2rel     = ddict(set)
 alias2id      = {}
-embed_model   = gensim.models.KeyedVectors.load_word2vec_format(args.embed_loc, binary=False)
+embed_model   = gm.models.KeyedVectors.load_word2vec_format(args.embed_loc, binary=False)
 
 for rel, aliases in rel2alias.items():
 	for alias in aliases:
@@ -349,6 +349,8 @@ def procData(data, split='train'):
 		res['Pos1'] 	 = [[posMap(pos) 		for pos in pos1] for pos1 in bag['pos1_list']]
 		res['Pos2'] 	 = [[posMap(pos) 		for pos in pos2] for pos2 in bag['pos2_list']]
 		res['Y']    	 = bag['rels']
+		res['sub']  = bag['sub']
+		res['obj']  = bag['obj']
 		res['SubType']   = [ getId(typ, type2id, 'NONE') for typ in bag['sub_type']]
 		res['ObjType']   = [ getId(typ, type2id, 'NONE') for typ in bag['obj_type']]
 		res['SubPos']    = bag['sub_pos_list']
@@ -373,4 +375,4 @@ final_data = {
 	'max_pos':	(args.MAX_POS+1)*2 + 1
 }
 
-pickle.dump(final_data, open('{}_processed.pkl'.format(args.data), 'wb'))
+pickle.dump(final_data, open('{}_processed_new.pkl'.format(args.data), 'wb'))

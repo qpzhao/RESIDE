@@ -26,7 +26,7 @@ def getEmbeddings(wrd_list, embed_dims, embed_loc):
 	"""
 	embed_list, wrd2vec = [], {}
 
-	for line in open(embed_loc):
+	for line in open(embed_loc,encoding='UTF-8'):
 		data		= line.strip().split(' ')
 		wrd, vec	= data[0], data[1:]
 		wrd2vec[wrd]	= np.float32(vec)
