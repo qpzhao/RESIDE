@@ -224,7 +224,9 @@ def read_file(file_path):
 			if not args.FULL and k > args.sample_size: break
 	return temp
 
-print('Reading train bags'); data['train'] = read_file( 'data/{}_train_bags.json'.format(args.data))
+#print('Reading train bags'); data['train'] = read_file( 'data/{}_train_bags.json'.format(args.data))
+#print('Reading test bags');  data['test']  = read_file( 'data/{}_test_bags.json'. format(args.data))
+print('Reading train bags'); data['train'] = read_file( 'data/openie_train_bags_merged.json')
 print('Reading test bags');  data['test']  = read_file( 'data/{}_test_bags.json'. format(args.data))
 
 print('Bags processed: Train:{}, Test:{}'.format(len(data['train']), len(data['test'])))
