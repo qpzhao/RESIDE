@@ -38,6 +38,9 @@ class RESIDE(Model):
 				batch['DepEdges']  += bag['DepEdges']
 				batch['ProbY']	   += bag['ProbY']
 
+				batch['SubPos']    += bag['SubPos']
+				batch['ObjPos']    += bag['ObjPos']
+                
 				batch['SubType'].append(bag['SubType'])
 				batch['ObjType'].append(bag['ObjType'])
 
@@ -69,7 +72,11 @@ class RESIDE(Model):
 		# Relation Alias Side Information
 		self.input_proby_ind 	= tf.placeholder(tf.int32,   shape=[None, None],   name='input_prob_ind')		# Relation Alias information Indices
 		self.input_proby_len 	= tf.placeholder(tf.float32, shape=[None],   	   name='input_prob_len')		# Max number of relations per bag for the entire batch
-
+        
+        #where subject and object in
+		self.sub_pos		= tf.placeholder(tf.int32,   shape=[None],         name='sub_pos')	
+		self.obj_pos		= tf.placeholder(tf.int32,   shape=[None],         name='obj_pos')			
+		
 		self.x_len		= tf.placeholder(tf.int32,   shape=[None],         name='input_len')			# Number of words in sentences in a batch
 		self.sent_num 		= tf.placeholder(tf.int32,   shape=[None, 3], 	   name='sent_num')			# Stores which sentences belong to which bag | [start_index, end_index, bag_number]
 		self.seq_len 		= tf.placeholder(tf.int32,   shape=(), 		   name='seq_len')			# Max number of tokens in sentences in a batch
@@ -140,7 +147,15 @@ class RESIDE(Model):
 
 		return x_pad, x_len, pos1_pad, pos2_pad, seq_len, subtype, subtype_len, objtype, objtype_len, rel_alias_ind, rel_alias_len
 
-
+	def pad_entity_pos_type(self,entity_pos):
+		sub_pos_ll = []
+		for pos in sub_pos:
+			sub_pos_ll.append([pos])
+        
+		subpos_hot = self.getOneHot(sub_pos_ll,seq_len)
+        
+        
+        
 	def create_feed_dict(self, batch, wLabels=True, split='train'):
 		"""
 		Creates a feed dictionary for the batch
@@ -155,11 +170,13 @@ class RESIDE(Model):
 		-------
 		feed_dict	Feed dictionary to be fed during sess.run
 		"""
-		X, Y, pos1, pos2, sent_num, sub_type, obj_type, rel_alias = batch['X'], batch['Y'], batch['Pos1'], batch['Pos2'], batch['sent_num'], batch['SubType'], batch['ObjType'], batch['ProbY']
+		X, Y, pos1, pos2, sent_num, sub_pos, obj_pos, sub_type, obj_type, rel_alias = batch['X'], batch['Y'], batch['Pos1'], batch['Pos2'], batch['sent_num'], batch['SubPos'], batch['ObjPos'], batch['SubType'], batch['ObjType'], batch['ProbY']
 		total_sents = len(batch['X'])
 		total_bags  = len(batch['Y'])
 		x_pad, x_len, pos1_pad, pos2_pad, seq_len, subtype, subtype_len, objtype, objtype_len, rel_alias_ind, rel_alias_len = self.pad_dynamic(X, pos1, pos2, sub_type, obj_type, rel_alias)
 
+
+        
 		y_hot = self.getOneHot(Y, 		self.num_class)
 		proby = self.getOneHot(rel_alias, 	self.num_class-1, isprob=True)	# -1 because NA cannot be in proby
 
@@ -167,6 +184,8 @@ class RESIDE(Model):
 		feed_dict[self.input_x] 		= np.array(x_pad)
 		feed_dict[self.input_pos1]		= np.array(pos1_pad)
 		feed_dict[self.input_pos2]		= np.array(pos2_pad)
+		feed_dict[self.sub_pos]         = sub_pos
+		feed_dict[self.obj_pos]         = obj_pos
 		feed_dict[self.input_subtype]		= np.array(subtype)
 		feed_dict[self.input_objtype]		= np.array(objtype)
 		feed_dict[self.x_len] 			= np.array(x_len)
@@ -361,8 +380,8 @@ class RESIDE(Model):
 			embed_init 	= getEmbeddings(self.wrd_list, self.p.embed_dim, self.p.embed_loc)
 			_wrd_embeddings = tf.get_variable('embeddings', initializer=embed_init, trainable=True, regularizer=self.regularizer)
 			wrd_pad  	= tf.zeros([1, self.p.embed_dim])
-			wrd_embeddings  = tf.concat([wrd_pad, _wrd_embeddings], axis=0)
-
+			wrd_embeddings  = tf.concat([wrd_pad, _wrd_embeddings], axis=0)#shape(150002,50)
+                #shape(123,16)
 			pos1_embeddings = tf.get_variable('pos1_embeddings', [self.max_pos, self.p.pos_dim], initializer=tf.contrib.layers.xavier_initializer(), trainable=True,   regularizer=self.regularizer)
 			pos2_embeddings = tf.get_variable('pos2_embeddings', [self.max_pos, self.p.pos_dim], initializer=tf.contrib.layers.xavier_initializer(), trainable=True,   regularizer=self.regularizer)
 
@@ -374,8 +393,21 @@ class RESIDE(Model):
 			alias_embed = tf.nn.embedding_lookup(alias_embeddings, self.input_proby_ind)
 			alias_av    = tf.divide(tf.reduce_sum(alias_embed, axis=1), tf.expand_dims(self.input_proby_len, axis=1))
 
-		wrd_embed  = tf.nn.embedding_lookup(wrd_embeddings,  in_wrds)
-		pos1_embed = tf.nn.embedding_lookup(pos1_embeddings, in_pos1)
+		with tf.variable_scope('TypeInfo') as scope:
+			pad_type_embed   = tf.zeros([1, self.p.type_dim],     dtype=tf.float32, name='type_pad')
+			_type_embeddings = tf.get_variable('type_embeddings', [self.type_num, self.p.type_dim], initializer=tf.contrib.layers.xavier_initializer(), trainable=True, regularizer=self.regularizer)
+			type_embeddings  = tf.concat([pad_type_embed, _type_embeddings], axis=0)#shape(40,50)
+
+			subtype = tf.nn.embedding_lookup(type_embeddings,  self.input_subtype)#shape(?,?,50)
+			objtype = tf.nn.embedding_lookup(type_embeddings,  self.input_objtype)
+
+			subtype_av = tf.divide(tf.reduce_sum(subtype, axis=1), tf.expand_dims(self.input_subtype_len, axis=1))#shape(?,50)
+			objtype_av = tf.divide(tf.reduce_sum(objtype, axis=1), tf.expand_dims(self.input_objtype_len, axis=1))
+
+			type_info = tf.concat([subtype_av, objtype_av], axis=1)
+           
+		wrd_embed  = tf.nn.embedding_lookup(wrd_embeddings,  in_wrds)#shape(?,?,50)
+		pos1_embed = tf.nn.embedding_lookup(pos1_embeddings, in_pos1)#shape(?,?,16)
 		pos2_embed = tf.nn.embedding_lookup(pos2_embeddings, in_pos2)
 		embeds     = tf.concat([wrd_embed, pos1_embed, pos2_embed], axis=2)
 
@@ -417,18 +449,6 @@ class RESIDE(Model):
 			sent_reps  = tf.concat([sent_reps, alias_av], axis=1)
 			de_out_dim += self.p.alias_dim
 
-		with tf.variable_scope('TypeInfo') as scope:
-			pad_type_embed   = tf.zeros([1, self.p.type_dim],     dtype=tf.float32, name='type_pad')
-			_type_embeddings = tf.get_variable('type_embeddings', [self.type_num, self.p.type_dim], initializer=tf.contrib.layers.xavier_initializer(), trainable=True, regularizer=self.regularizer)
-			type_embeddings  = tf.concat([pad_type_embed, _type_embeddings], axis=0)
-
-			subtype = tf.nn.embedding_lookup(type_embeddings,  self.input_subtype)
-			objtype = tf.nn.embedding_lookup(type_embeddings,  self.input_objtype)
-
-			subtype_av = tf.divide(tf.reduce_sum(subtype, axis=1), tf.expand_dims(self.input_subtype_len, axis=1))
-			objtype_av = tf.divide(tf.reduce_sum(objtype, axis=1), tf.expand_dims(self.input_objtype_len, axis=1))
-
-			type_info = tf.concat([subtype_av, objtype_av], axis=1)
 
 		with tf.variable_scope('Sentence_attention') as scope:
 			sent_atten_q = tf.get_variable('sent_atten_q', [de_out_dim, 1], initializer=tf.contrib.layers.xavier_initializer())
