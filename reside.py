@@ -1,7 +1,7 @@
 from base import Model
 from helper import *
 import tensorflow as tf
-
+import numpy as np
 """
 Abbreviations used in variable names:
 	Type:  Entity type side informatoin
@@ -47,7 +47,8 @@ class RESIDE(Model):
 				batch['Y'].append(bag['Y'])
 				old_num  = num
 				num 	+= len(bag['X'])
-
+				for k in range(len(bag['X'])):
+					batch['sent_bag_num'].append(i)
 				batch['sent_num'].append([old_num, num, i])
 
 			yield batch
@@ -74,11 +75,13 @@ class RESIDE(Model):
 		self.input_proby_len 	= tf.placeholder(tf.float32, shape=[None],   	   name='input_prob_len')		# Max number of relations per bag for the entire batch
         
         #where subject and object in
-		self.sub_pos		= tf.placeholder(tf.int32,   shape=[None],         name='sub_pos')	
-		self.obj_pos		= tf.placeholder(tf.int32,   shape=[None],         name='obj_pos')			
+		self.input_subpos		= tf.placeholder(tf.int32,   shape=[None,None],         name='input_subpos')	
+		self.input_objpos		= tf.placeholder(tf.int32,   shape=[None,None],         name='input_objpos')			
 		
 		self.x_len		= tf.placeholder(tf.int32,   shape=[None],         name='input_len')			# Number of words in sentences in a batch
 		self.sent_num 		= tf.placeholder(tf.int32,   shape=[None, 3], 	   name='sent_num')			# Stores which sentences belong to which bag | [start_index, end_index, bag_number]
+		self.sent_bag_num 		= tf.placeholder(tf.int32,   shape=[None], 	   name='sent_bag_num')			# Stores which sentences belong to which bag | [bag_number]
+
 		self.seq_len 		= tf.placeholder(tf.int32,   shape=(), 		   name='seq_len')			# Max number of tokens in sentences in a batch
 		self.total_bags 	= tf.placeholder(tf.int32,   shape=(), 		   name='total_bags')			# Total number of bags in a batch
 		self.total_sents 	= tf.placeholder(tf.int32,   shape=(), 		   name='total_sents')			# Total number of sentences in a batch
@@ -147,13 +150,17 @@ class RESIDE(Model):
 
 		return x_pad, x_len, pos1_pad, pos2_pad, seq_len, subtype, subtype_len, objtype, objtype_len, rel_alias_ind, rel_alias_len
 
-	def pad_entity_pos_type(self,entity_pos):
-		sub_pos_ll = []
-		for pos in sub_pos:
-			sub_pos_ll.append([pos])
+	def pad_entity_pos_type(self,entity_pos,seq_len):
+		#np.array(entity_pos).reshape(-1,1)
+		pos_ll = []
+		for pos in entity_pos:
+			pos_ll.append([pos if pos < seq_len else seq_len-1])
         
-		subpos_hot = self.getOneHot(sub_pos_ll,seq_len)
-        
+		a = np.array(self.getOneHot(pos_ll,seq_len))
+		b = np.zeros(a.shape)
+		for i in range(0,a.shape[0]):
+			b[i,:] = a[i,:]*(i+1)
+		return b
         
         
 	def create_feed_dict(self, batch, wLabels=True, split='train'):
@@ -170,7 +177,7 @@ class RESIDE(Model):
 		-------
 		feed_dict	Feed dictionary to be fed during sess.run
 		"""
-		X, Y, pos1, pos2, sent_num, sub_pos, obj_pos, sub_type, obj_type, rel_alias = batch['X'], batch['Y'], batch['Pos1'], batch['Pos2'], batch['sent_num'], batch['SubPos'], batch['ObjPos'], batch['SubType'], batch['ObjType'], batch['ProbY']
+		X, Y, pos1, pos2, sent_num, sent_bag_num, sub_pos, obj_pos, sub_type, obj_type, rel_alias = batch['X'], batch['Y'], batch['Pos1'], batch['Pos2'], batch['sent_num'], batch['sent_bag_num'], batch['SubPos'], batch['ObjPos'], batch['SubType'], batch['ObjType'], batch['ProbY']
 		total_sents = len(batch['X'])
 		total_bags  = len(batch['Y'])
 		x_pad, x_len, pos1_pad, pos2_pad, seq_len, subtype, subtype_len, objtype, objtype_len, rel_alias_ind, rel_alias_len = self.pad_dynamic(X, pos1, pos2, sub_type, obj_type, rel_alias)
@@ -184,8 +191,8 @@ class RESIDE(Model):
 		feed_dict[self.input_x] 		= np.array(x_pad)
 		feed_dict[self.input_pos1]		= np.array(pos1_pad)
 		feed_dict[self.input_pos2]		= np.array(pos2_pad)
-		feed_dict[self.sub_pos]         = sub_pos
-		feed_dict[self.obj_pos]         = obj_pos
+		feed_dict[self.input_subpos]         = self.pad_entity_pos_type(sub_pos,seq_len)
+		feed_dict[self.input_objpos]         = self.pad_entity_pos_type(obj_pos,seq_len)
 		feed_dict[self.input_subtype]		= np.array(subtype)
 		feed_dict[self.input_objtype]		= np.array(objtype)
 		feed_dict[self.x_len] 			= np.array(x_len)
@@ -193,6 +200,7 @@ class RESIDE(Model):
 		feed_dict[self.total_sents]		= total_sents
 		feed_dict[self.total_bags]		= total_bags
 		feed_dict[self.sent_num]		= sent_num
+		feed_dict[self.sent_bag_num]		= np.array(sent_bag_num)
 		feed_dict[self.input_subtype_len] 	= np.array(subtype_len) + self.p.eps
 		feed_dict[self.input_objtype_len] 	= np.array(objtype_len) + self.p.eps
 		feed_dict[self.input_proby_ind] 	= np.array(rel_alias_ind)
@@ -403,13 +411,18 @@ class RESIDE(Model):
 
 			subtype_av = tf.divide(tf.reduce_sum(subtype, axis=1), tf.expand_dims(self.input_subtype_len, axis=1))#shape(?,50)
 			objtype_av = tf.divide(tf.reduce_sum(objtype, axis=1), tf.expand_dims(self.input_objtype_len, axis=1))
-
+            
 			type_info = tf.concat([subtype_av, objtype_av], axis=1)
+            
+			subtype_av_sent = tf.nn.embedding_lookup(subtype_av,self.sent_bag_num)
+			objtype_av_sent = tf.nn.embedding_lookup(objtype_av,self.sent_bag_num)            
+			subtype_embed = tf.nn.embedding_lookup(tf.concat([pad_type_embed, subtype_av_sent], axis=0),self.input_subpos)
+			objtype_embed = tf.nn.embedding_lookup(tf.concat([pad_type_embed, objtype_av_sent], axis=0),self.input_objpos)
            
 		wrd_embed  = tf.nn.embedding_lookup(wrd_embeddings,  in_wrds)#shape(?,?,50)
 		pos1_embed = tf.nn.embedding_lookup(pos1_embeddings, in_pos1)#shape(?,?,16)
 		pos2_embed = tf.nn.embedding_lookup(pos2_embeddings, in_pos2)
-		embeds     = tf.concat([wrd_embed, pos1_embed, pos2_embed], axis=2)
+		embeds     = tf.concat([wrd_embed, pos1_embed, pos2_embed,subtype_embed,objtype_embed], axis=2)
 
 		with tf.variable_scope('Bi-LSTM') as scope:
 			fw_cell      = tf.contrib.rnn.DropoutWrapper(tf.nn.rnn_cell.GRUCell(self.p.lstm_dim, name='FW_GRU'), output_keep_prob=self.rec_dropout)
