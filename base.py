@@ -110,7 +110,9 @@ class Model(object):
 				'ProbY': 	[bag['ProbY'][indx[0]]],
 				'Y':    	bag['Y'],
 				'SubType':	bag['SubType'],
-				'ObjType':	bag['ObjType']
+				'ObjType':	bag['ObjType'],
+				'SubPos':	bag['SubPos'],
+				'ObjPos':	bag['ObjPos']
 			})
 
 			p_two.append({
@@ -121,7 +123,9 @@ class Model(object):
 				'ProbY': 	[bag['ProbY'][indx[0]], bag['ProbY'][indx[1]]],
 				'Y':   	 	bag['Y'],
 				'SubType':	bag['SubType'],
-				'ObjType':	bag['ObjType']
+				'ObjType':	bag['ObjType'],
+				'SubPos':	bag['SubPos'],
+				'ObjPos':	bag['ObjPos']
 			})
 
 		return p_one, p_two

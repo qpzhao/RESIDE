@@ -482,8 +482,8 @@ class RESIDE(Model):
 
 			bag_rep = tf.map_fn(getSentAtten, self.sent_num, dtype=tf.float32)
 
-		bag_rep    = tf.concat([bag_rep, type_info], axis=1)
-		de_out_dim = de_out_dim + self.p.type_dim * 2
+		#bag_rep    = tf.concat([bag_rep, type_info], axis=1)
+		#de_out_dim = de_out_dim + self.p.type_dim * 2
 
 		with tf.variable_scope('FC1') as scope:
 			w_rel   = tf.get_variable('w_rel', [de_out_dim, self.num_class], initializer=tf.contrib.layers.xavier_initializer(), 		regularizer=self.regularizer)
